@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              , QSpinBox)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
-
+from Simplex import simplex, twoPhase
 from Simplex import simplex
 import numpy as np
 import sys
@@ -151,79 +151,94 @@ class SimplexGUI(QMainWindow):
         try:
             n_vars = int(self.var_input.text())
             n_cons = int(self.cons_input.text())
-            
-            # 1. Check Constraint Types to decide the method [cite: 9, 10, 13]
+            sense = self.Min_or_max.currentText()  # "Max" or "Min"
+
+            # 1. Read constraint types
             types = []
             for i in range(n_cons):
                 combo = self.table_widget.cellWidget(i, n_vars)
                 if isinstance(combo, QComboBox):
                     types.append(combo.currentText())
                 else:
-                    types.append("<=") 
+                    types.append("<=")
 
             is_standard = all(t == "<=" for t in types)
 
-            if not is_standard:
-                self.output_area.setText("Method: Two-Phase Simplex required.")
-                return
-
-            # 2. Proceed with Standard Simplex Logic [cite: 9]
+            # 2. Read raw objective and constraints
             obj_raw = [self.safe_get_item(n_cons, j) for j in range(n_vars)]
             constraints_raw = []
             rhs = []
             for i in range(n_cons):
                 constraints_raw.append([self.safe_get_item(i, j) for j in range(n_vars)])
-                # RHS is now in the last column (n_vars + 1)
                 rhs.append(self.safe_get_item(i, n_vars + 1))
 
-            # Handle Unrestricted Variables [cite: 11]
-            new_obj = []
-            new_cons = [[] for _ in range(n_cons)]
-            for j in range(n_vars):
-                if self.unres_checkboxes[j].isChecked():
-                    new_obj.extend([obj_raw[j], -obj_raw[j]])
-                    for i in range(n_cons):
-                        new_cons[i].extend([constraints_raw[i][j], -constraints_raw[i][j]])
-                else:
-                    new_obj.append(obj_raw[j])
-                    for i in range(n_cons):
-                        new_cons[i].append(constraints_raw[i][j])
+            obj_raw_np = np.array(obj_raw, dtype=float)
+            constraints_raw_np = np.array(constraints_raw, dtype=float)
+            rhs_np = np.array(rhs, dtype=float)
+            unrestricted = [cb.isChecked() for cb in self.unres_checkboxes]
 
-            # Convert to numpy and add Slack
-            final_obj = np.array(new_obj)
-            final_cons = np.array(new_cons)
-            total_actual_vars = final_cons.shape[1]
-            
-            slacks = np.eye(n_cons)
-            final_cons = np.hstack((final_cons, slacks))
-            final_obj = np.append(final_obj, np.zeros(n_cons))
+            if not is_standard:
+                # twoPhase handles free variables, slacks, surplus, artificials internally
+                x_res, opt_val, status, tables = twoPhase(
+                    obj_raw_np,
+                    constraints_raw_np,
+                    rhs_np,
+                    types,
+                    n_vars,
+                    n_cons,
+                    unrestricted,
+                    sense
+                )
 
-            # Solve using your logic [cite: 7]
-            # Ensure simplex is imported correctly from your file
-            from Simplex import simplex 
-            x_res, opt_val, status, tables = simplex(final_obj, final_cons, np.array(rhs), total_actual_vars, n_cons,self.Min_or_max)
+            else:
+                # Standard simplex — handle free variables and slacks here
+                new_obj = []
+                new_cons = [[] for _ in range(n_cons)]
+                for j in range(n_vars):
+                    if unrestricted[j]:
+                        new_obj.extend([obj_raw[j], -obj_raw[j]])
+                        for i in range(n_cons):
+                            new_cons[i].extend([constraints_raw[i][j], -constraints_raw[i][j]])
+                    else:
+                        new_obj.append(obj_raw[j])
+                        for i in range(n_cons):
+                            new_cons[i].append(constraints_raw[i][j])
 
-            # Output results
+                final_obj = np.array(new_obj, dtype=float)
+                final_cons = np.array(new_cons, dtype=float)
+                total_actual_vars = final_cons.shape[1]
+
+                # Add slack variables
+                final_cons = np.hstack((final_cons, np.eye(n_cons)))
+                final_obj = np.append(final_obj, np.zeros(n_cons))
+
+                x_res, opt_val, status, tables = simplex(
+                    final_obj, final_cons, rhs_np,
+                    total_actual_vars, n_cons, sense
+                )
+
+            # 3. Display results
             self.output_area.clear()
-            self.output_area.append(f"<b>Method:</b> Standard Simplex")
+            method = "Standard Simplex" if is_standard else "Two-Phase Simplex"
+            self.output_area.append(f"<b>Method:</b> {method}")
             self.output_area.append(f"<b>Problem Status:</b> {status}")
-            
+
             if status == "optimal":
                 self.output_area.append(f"<b>Optimal Objective Value:</b> {self.format_number(opt_val)}")
                 final_x = []
                 idx = 0
                 for j in range(n_vars):
-                    if self.unres_checkboxes[j].isChecked():
+                    if unrestricted[j]:
                         if x_res is not None:
-                            final_x.append(x_res[idx] - x_res[idx+1])
+                            final_x.append(x_res[idx] - x_res[idx + 1])
                             idx += 2
                     else:
-                        if x_res is not None:    
+                        if x_res is not None:
                             final_x.append(x_res[idx])
                             idx += 1
-                
+
                 for i, val in enumerate(final_x):
-                    self.output_area.append(f"Variable x{i+1}: {self.format_number(val)}")
+                    self.output_area.append(f"Variable x{i + 1}: {self.format_number(val)}")
 
             self.output_area.append("\n" + "-" * 50 + "\n")
             self.output_area.append("\n<b>--- Iteration Tables ---</b>")
@@ -233,6 +248,7 @@ class SimplexGUI(QMainWindow):
                     formatted_row = [self.format_number(x) for x in row]
                     self.output_area.append("[" + "  ".join(formatted_row) + "]")
                 self.output_area.append("\n" + "-" * 50 + "\n")
+
         except Exception as e:
             self.output_area.setText(f"{str(e)}")
 

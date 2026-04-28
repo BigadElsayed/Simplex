@@ -119,6 +119,8 @@ def twoPhase(obj,constrains , rhs ,constraint_types, n_decision_vars , n_constra
     phase2_obj=np.delete(new_obj, artificial_indices)
     final_p1_table= tables_p1[-1]
     p1_basis_tableau = np.delete(final_p1_table, artificial_indices , axis=1)  # remove art cols but keep RHS
+
+
     for j in range(phase2_constrains.shape[1]):
         col = p1_basis_tableau[:n_constrains, j]
         if np.isclose(col.sum(), 1) and np.count_nonzero(col) == 1:
@@ -126,8 +128,10 @@ def twoPhase(obj,constrains , rhs ,constraint_types, n_decision_vars , n_constra
             factor = phase2_obj[j]
             if not np.isclose(factor, 0):
                 phase2_obj -= factor * p1_basis_tableau[basic_row, :phase2_constrains.shape[1]]
+
     updated_rhs = final_p1_table[:n_constrains, -1]
     p1_constraint_rows = p1_basis_tableau[:n_constrains, :phase2_constrains.shape[1]]
+
     x, opt_val, status, tables_p2 = simplex(phase2_obj, p1_constraint_rows ,updated_rhs, phase2_constrains.shape[1], n_constrains, mode)
     all_tables=tables_p1+tables_p2
     return x, opt_val, status, all_tables

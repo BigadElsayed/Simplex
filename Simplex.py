@@ -111,6 +111,11 @@ def twoPhase(obj,constrains , rhs ,constraint_types, n_decision_vars , n_constra
 
     phase1_obj=np.zeros(new_constrains.shape[1])
     phase1_obj[artificial_indices] = 1
+    for idx in artificial_indices:
+        col = new_constrains[:, idx]
+        row = np.where(np.isclose(col, 1, atol=1e-9))[0]
+        if len(row) == 1:
+            phase1_obj = phase1_obj - phase1_obj[idx] * new_constrains[row[0], :]
     _, phase1_val, status, tables_p1 = simplex(phase1_obj, new_constrains, rhs, new_constrains.shape[1], n_constrains,"Min")
     if phase1_val > 1e-9:
         return None, None, "infeasible", tables_p1
@@ -122,17 +127,17 @@ def twoPhase(obj,constrains , rhs ,constraint_types, n_decision_vars , n_constra
 
     updated_rhs = final_p1_table[:n_constrains, -1]
     p1_constraint_rows = p1_basis_tableau[:n_constrains, :phase2_constrains.shape[1]]
-    for i in range(n_constrains):
-        for j in range(phase2_constrains.shape[1]):
-            col = p1_constraint_rows[:, j]
-            if (np.isclose(col[i], 1, atol=1e-9) and
-                    np.all(np.isclose(np.delete(col, i), 0, atol=1e-9))):
+    for j in range(phase2_constrains.shape[1]):
+        col = p1_constraint_rows[:, j]
+        row_indices = np.where(np.isclose(col, 1, atol=1e-9))[0]
+        if len(row_indices) == 1:
+            i = row_indices[0]
+            if np.all(np.isclose(np.delete(col, i), 0, atol=1e-9)):
                 factor = phase2_obj[j]
                 if not np.isclose(factor, 0, atol=1e-9):
                     phase2_obj = phase2_obj - factor * p1_constraint_rows[i, :]
-                break
 
-    x, opt_val, status, tables_p2 = simplex(phase2_obj, p1_constraint_rows ,updated_rhs, phase2_constrains.shape[1], n_constrains, mode)
+    x, opt_val, status, tables_p2 = simplex(phase2_obj, p1_constraint_rows ,updated_rhs, p1_constraint_rows.shape[1], n_constrains, mode)
     all_tables=tables_p1+tables_p2
     return x, opt_val, status, all_tables
 

@@ -116,7 +116,7 @@ def twoPhase(obj,constrains , rhs ,constraint_types, n_decision_vars , n_constra
         row = np.where(np.isclose(col, 1, atol=1e-9))[0]
         if len(row) == 1:
             phase1_obj = phase1_obj - phase1_obj[idx] * new_constrains[row[0], :]
-    _, phase1_val, status, tables_p1 = simplex(phase1_obj, new_constrains, rhs, new_constrains.shape[1], n_constrains,"Min")
+    _, phase1_val, _, tables_p1 = simplex(phase1_obj, new_constrains, rhs, new_constrains.shape[1], n_constrains,"Min")
     if phase1_val > 1e-9: # type: ignore
         return None, None, "infeasible", tables_p1
 

@@ -201,7 +201,7 @@ class SimplexGUI(QMainWindow):
             # Solve using your logic [cite: 7]
             # Ensure simplex is imported correctly from your file
             from Simplex import simplex 
-            x_res, opt_val, status, tables = simplex(final_obj, final_cons, np.array(rhs), total_actual_vars, n_cons)
+            x_res, opt_val, status, tables = simplex(final_obj, final_cons, np.array(rhs), total_actual_vars, n_cons,self.Min_or_max)
 
             # Output results
             self.output_area.clear()

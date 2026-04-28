@@ -8,7 +8,7 @@ def simplex(obj_function , constrains , rhs , no_of_decision_vars , no_of_constr
     table[:no_of_constrains , -1] = rhs
 
     if mode == "Min":
-        obj_function*=-1
+        obj_function = obj_function.copy() * -1
     table[-1 , :constrains.shape[1]] = obj_function * -1
 
     while True:
@@ -81,6 +81,7 @@ def twoPhase(obj,constrains , rhs ,constraint_types, n_decision_vars , n_constra
     new_constrains=np.column_stack(new_constrains_cols)
     new_obj=np.array(new_obj)
 
+    #here to handle surpass,artificial, etc
 
     for i,type in enumerate(constraint_types):
         if type== "<=":
@@ -92,7 +93,7 @@ def twoPhase(obj,constrains , rhs ,constraint_types, n_decision_vars , n_constra
         elif type== ">=":
             surplus_col=np.zeros(n_constrains)
             surplus_col[i] = -1
-            art_col=np.zeros(n_decision_vars)
+            art_col=np.zeros(n_constrains)
             art_col[i] = 1
             new_constrains=np.hstack((new_constrains,surplus_col.reshape(-1,1)))
             new_obj=np.append(new_obj,0)
@@ -102,11 +103,37 @@ def twoPhase(obj,constrains , rhs ,constraint_types, n_decision_vars , n_constra
             artificial_indices.append(new_constrains.shape[1]-1)
 
         elif type== "=":
-            art_col=np.zeros(n_decision_vars)
+            art_col=np.zeros(n_constrains)
             art_col[i] = 1
             new_constrains=np.hstack((new_constrains,art_col.reshape(-1,1)))
             new_obj=np.append(new_obj,0)
             artificial_indices.append(new_constrains.shape[1]-1)
+
+    phase1_obj=np.zeros(new_constrains.shape[1])
+    phase1_obj[artificial_indices] = 1
+    _, phase1_val, status, tables_p1 = simplex(phase1_obj, new_constrains, rhs, new_constrains.shape[1], n_constrains,"Min")
+    if phase1_val > 1e-9:
+        return None, None, "infeasible", tables_p1
+
+    phase2_constrains=np.delete(new_constrains, artificial_indices, axis=1)
+    phase2_obj=np.delete(new_obj, artificial_indices)
+    final_p1_table= tables_p1[-1]
+    p1_basis_tableau = np.delete(final_p1_table, artificial_indices , axis=1)  # remove art cols but keep RHS
+    for j in range(phase2_constrains.shape[1]):
+        col = p1_basis_tableau[:n_constrains, j]
+        if np.isclose(col.sum(), 1) and np.count_nonzero(col) == 1:
+            basic_row = np.argmax(col)
+            factor = phase2_obj[j]
+            if not np.isclose(factor, 0):
+                phase2_obj -= factor * p1_basis_tableau[basic_row, :phase2_constrains.shape[1]]
+    updated_rhs = final_p1_table[:n_constrains, -1]
+    p1_constraint_rows = p1_basis_tableau[:n_constrains, :phase2_constrains.shape[1]]
+    x, opt_val, status, tables_p2 = simplex(phase2_obj, p1_constraint_rows ,updated_rhs, phase2_constrains.shape[1], n_constrains, mode)
+    all_tables=tables_p1+tables_p2
+    return x, opt_val, status, all_tables
+
+
+
 
 
 

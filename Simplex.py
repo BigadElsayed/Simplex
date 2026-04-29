@@ -37,7 +37,6 @@ def simplex(obj_function , constrains , rhs , no_of_decision_vars , no_of_constr
             if(i != leaving_var):
                 factor = table[i , entering_var]
                 table[i , : ] -= factor * table[leaving_var , : ]
-
     optimal_value = table[-1 , -1]
     if(mode == "Min"):
         optimal_value*=-1
@@ -47,20 +46,18 @@ def simplex(obj_function , constrains , rhs , no_of_decision_vars , no_of_constr
 
 
 def extract_basic_variables(final_table, no_of_decision_vars, tol=1e-9):
-
-    m = final_table.shape[0] - 1  # last row is objective function
+    m = final_table.shape[0] - 1
     x = np.zeros(no_of_decision_vars)
-
     for j in range(no_of_decision_vars):
+        # Basic variable must have 0 in the objective row
+        if not np.isclose(final_table[m, j], 0, atol=tol):
+            continue
         column = final_table[:m, j]
-
-        if np.isclose(column.sum(), 1, atol=tol): # 0 --- 1 ---- 0 -> sum = 1
-            row_indices = np.where(np.isclose(column, 1, atol=tol))[0]
-
-            if len(row_indices) == 1 and np.all(np.isclose(np.delete(column, row_indices[0]), 0, atol=tol)):
-                row = row_indices[0]
-                x[j] = final_table[row, -1]
-
+        row_indices = np.where(np.isclose(column, 1, atol=tol))[0]
+        if len(row_indices) == 1:
+            rest = np.delete(column, row_indices[0])
+            if np.all(np.isclose(rest, 0, atol=tol)):
+                x[j] = final_table[row_indices[0], -1]
     return x
 
 
@@ -80,6 +77,20 @@ def twoPhase(obj,constrains , rhs ,constraint_types, n_decision_vars , n_constra
             new_constrains_cols.append(constrains[:,i])
     new_constrains=np.column_stack(new_constrains_cols)
     new_obj=np.array(new_obj)
+
+########################################################
+# Handle negative RHS by multiplying the entire constraint by -1 and flipping the inequality
+########################################################
+    constraint_types = list(constraint_types)
+    for i in range(n_constrains):
+        if rhs[i] < 0:
+            rhs = rhs.copy()
+            rhs[i] *= -1
+            new_constrains[i, :] *= -1
+            if constraint_types[i] == ">=":
+                constraint_types[i] = "<="
+            elif constraint_types[i] == "<=":
+                constraint_types[i] = ">="
 
     #here to handle surpass,artificial, etc
 
@@ -113,11 +124,25 @@ def twoPhase(obj,constrains , rhs ,constraint_types, n_decision_vars , n_constra
     phase1_obj[artificial_indices] = 1
     for idx in artificial_indices:
         col = new_constrains[:, idx]
-        row = np.where(np.isclose(col, 1, atol=1e-9))[0]
-        if len(row) == 1:
+        # find the row where THIS artificial col has a 1, restricted to constraint rows only
+        row = np.where(np.isclose(col[:n_constrains], 1, atol=1e-9))[0]
+        if len(row) >= 1:
             phase1_obj = phase1_obj - phase1_obj[idx] * new_constrains[row[0], :]
-    _, phase1_val, _, tables_p1 = simplex(phase1_obj, new_constrains, rhs, new_constrains.shape[1], n_constrains,"Min")
-    if phase1_val > 1e-9: # type: ignore
+
+#########################################
+### Calculate the offset for phase 1 objective based on the initial artificial variable values
+########################################
+    phase1_rhs_offset = 0
+    for idx in artificial_indices:
+        col = new_constrains[:, idx]
+        # same fix — slice to n_constrains before searching
+        art_row = np.where(np.isclose(col[:n_constrains], 1, atol=1e-9))[0]
+        if len(art_row) >= 1:
+            phase1_rhs_offset += rhs[art_row[0]]
+
+
+    _, phase1_val, _, tables_p1 = simplex(-phase1_obj, new_constrains, rhs, new_constrains.shape[1], n_constrains,"Max")
+    if phase1_val is None or phase1_val < phase1_rhs_offset - 1e-9:
         return None, None, "infeasible", tables_p1
 
     phase2_constrains=np.delete(new_constrains, artificial_indices, axis=1)
@@ -139,6 +164,23 @@ def twoPhase(obj,constrains , rhs ,constraint_types, n_decision_vars , n_constra
 
     x, opt_val, status, tables_p2 = simplex(phase2_obj, p1_constraint_rows ,updated_rhs, p1_constraint_rows.shape[1], n_constrains, mode)
     all_tables=tables_p1+tables_p2
+
+##############################
+##### Convert back to original variables if there were unrestricted variables
+##############################
+    if x is not None and status == "optimal":
+        original_x = []
+        idx = 0
+        for i in range(n_decision_vars):
+            if unrestricted[i]:
+                original_x.append(x[idx] - x[idx + 1])  # x_i = x_i⁺ - x_i⁻
+                idx += 2
+            else:
+                original_x.append(x[idx])
+                idx += 1
+        x = np.array(original_x)
+        opt_val = float(np.dot(obj, x))
+
     return x, opt_val, status, all_tables
 
 

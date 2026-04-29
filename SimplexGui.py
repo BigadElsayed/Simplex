@@ -104,8 +104,8 @@ class SimplexGUI(QMainWindow):
         # Clear previous table and checkboxes
         self.table_widget.clear()
         try:
-            n_vars = int(self.var_input.text())
-            n_cons = int(self.cons_input.text())
+            n_vars = self.var_input.value()
+            n_cons = self.cons_input.value()
         except: return
 
         self.table_widget.setColumnCount(n_vars + 2)
@@ -149,8 +149,8 @@ class SimplexGUI(QMainWindow):
 
     def solve_lp(self):
         try:
-            n_vars = int(self.var_input.text())
-            n_cons = int(self.cons_input.text())
+            n_vars = self.var_input.value()
+            n_cons = self.cons_input.value()
             sense = self.Min_or_max.currentText()  # "Max" or "Min"
 
             # 1. Read constraint types
@@ -225,20 +225,24 @@ class SimplexGUI(QMainWindow):
 
             if status == "optimal":
                 self.output_area.append(f"<b>Optimal Objective Value:</b> {self.format_number(opt_val)}")
-                final_x = []
-                idx = 0
-                for j in range(n_vars):
-                    if unrestricted[j]:
-                        if x_res is not None:
-                            final_x.append(x_res[idx] - x_res[idx + 1])
-                            idx += 2
+                if x_res is not None:
+                    if is_standard:
+                        # Standard simplex returns split vars — reconstruct
+                        final_x = []
+                        idx = 0
+                        for j in range(n_vars):
+                            if unrestricted[j]:
+                                final_x.append(x_res[idx] - x_res[idx + 1])
+                                idx += 2
+                            else:
+                                final_x.append(x_res[idx])
+                                idx += 1
                     else:
-                        if x_res is not None:
-                            final_x.append(x_res[idx])
-                            idx += 1
+                        # twoPhase already reconstructed original vars
+                        final_x = list(x_res)
 
-                for i, val in enumerate(final_x):
-                    self.output_area.append(f"Variable x{i + 1}: {self.format_number(val)}")
+                    for i, val in enumerate(final_x):
+                        self.output_area.append(f"Variable x{i + 1}: {self.format_number(val)}")
 
             self.output_area.append("\n" + "-" * 50 + "\n")
             self.output_area.append("\n<b>--- Iteration Tables ---</b>")

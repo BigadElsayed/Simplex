@@ -78,9 +78,7 @@ def twoPhase(obj,constrains , rhs ,constraint_types, n_decision_vars , n_constra
     new_constrains=np.column_stack(new_constrains_cols)
     new_obj=np.array(new_obj)
 
-########################################################
 # Handle negative RHS by multiplying the entire constraint by -1 and flipping the inequality
-########################################################
     constraint_types = list(constraint_types)
     for i in range(n_constrains):
         if rhs[i] < 0:
@@ -120,6 +118,7 @@ def twoPhase(obj,constrains , rhs ,constraint_types, n_decision_vars , n_constra
             new_obj=np.append(new_obj,0)
             artificial_indices.append(new_constrains.shape[1]-1)
 
+    #here do elimination so that the obj cof=0 for the basic (a1,a2,etc.)
     phase1_obj=np.zeros(new_constrains.shape[1])
     phase1_obj[artificial_indices] = 1
     for idx in artificial_indices:
@@ -165,9 +164,7 @@ def twoPhase(obj,constrains , rhs ,constraint_types, n_decision_vars , n_constra
     x, opt_val, status, tables_p2 = simplex(phase2_obj, p1_constraint_rows ,updated_rhs, p1_constraint_rows.shape[1], n_constrains, mode)
     all_tables=tables_p1+tables_p2
 
-##############################
-##### Convert back to original variables if there were unrestricted variables
-##############################
+#Convert back to original variables if there were unrestricted variables
     if x is not None and status == "optimal":
         original_x = []
         idx = 0

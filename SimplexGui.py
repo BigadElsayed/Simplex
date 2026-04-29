@@ -67,6 +67,8 @@ class SimplexGUI(QMainWindow):
         #########################################################
         #########################################################
 
+        #write to txt and the gui
+
 
 
         btn_gen = QPushButton("Generate Table")
@@ -99,6 +101,12 @@ class SimplexGUI(QMainWindow):
         layout.addWidget(self.output_area)
 
         self.setCentralWidget(central_widget)
+
+    def log(self, text):
+        # strip HTML tags for file
+        clean = text.replace("<b>", "").replace("</b>", "")
+        self.output_area.append(text)  # GUI (with HTML)
+        self.log_file.write(clean + "\n")  # file (plain text)
 
     def generate_table(self):
         # Clear previous table and checkboxes
@@ -138,6 +146,28 @@ class SimplexGUI(QMainWindow):
             self.unres_checkboxes.append(cb)
             self.unres_layout.addWidget(cb)
 
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            current = self.table_widget.currentIndex()
+            n_vars = self.var_input.value()
+            row = current.row()
+            col = current.column()
+
+            # skip the "Type" column (n_vars)
+            next_col = col + 1
+            if next_col == n_vars:  # skip Type column
+                next_col += 1
+
+            if next_col > n_vars + 1:  # past RHS, go to next row
+                next_col = 0
+                row += 1
+
+            if row < self.table_widget.rowCount():
+                self.table_widget.setCurrentCell(row, next_col)
+                self.table_widget.editItem(self.table_widget.item(row, next_col))
+        else:
+            super().keyPressEvent(event)
+
     def safe_get_item(self, r, c):
         item = self.table_widget.item(r, c)
         if item is None or item.text().strip() == "":
@@ -149,6 +179,7 @@ class SimplexGUI(QMainWindow):
 
     def solve_lp(self):
         try:
+            self.log_file = open("output.txt", "w")  # clears file on each new solve
             n_vars = self.var_input.value()
             n_cons = self.cons_input.value()
             sense = self.Min_or_max.currentText()  # "Max" or "Min"
@@ -220,11 +251,11 @@ class SimplexGUI(QMainWindow):
             # 3. Display results
             self.output_area.clear()
             method = "Standard Simplex" if is_standard else "Two-Phase Simplex"
-            self.output_area.append(f"<b>Method:</b> {method}")
-            self.output_area.append(f"<b>Problem Status:</b> {status}")
+            self.log(f"<b>Method:</b> {method}")
+            self.log(f"<b>Problem Status:</b> {status}")
 
             if status == "optimal":
-                self.output_area.append(f"<b>Optimal Objective Value:</b> {self.format_number(opt_val)}")
+                self.log(f"<b>Optimal Objective Value:</b> {self.format_number(opt_val)}")
                 if x_res is not None:
                     if is_standard:
                         # Standard simplex returns split vars — reconstruct
@@ -242,19 +273,22 @@ class SimplexGUI(QMainWindow):
                         final_x = list(x_res)
 
                     for i, val in enumerate(final_x):
-                        self.output_area.append(f"Variable x{i + 1}: {self.format_number(val)}")
+                        self.log(f"Variable x{i + 1}: {self.format_number(val)}")
 
-            self.output_area.append("\n" + "-" * 50 + "\n")
-            self.output_area.append("\n<b>--- Iteration Tables ---</b>")
+            self.log("\n" + "-" * 50 + "\n")
+            self.log("\n<b>--- Iteration Tables ---</b>")
             for i, t in enumerate(tables):
-                self.output_area.append(f"Tableau {i}:")
+                self.log(f"Tableau {i}:")
                 for row in t:
                     formatted_row = [self.format_number(x) for x in row]
-                    self.output_area.append("[" + "  ".join(formatted_row) + "]")
-                self.output_area.append("\n" + "-" * 50 + "\n")
+                    self.log("[" + "  ".join(formatted_row) + "]")
+                self.log("\n" + "-" * 50 + "\n")
+            self.log_file.close()
 
         except Exception as e:
             self.output_area.setText(f"{str(e)}")
+            if hasattr(self, 'log_file') and not self.log_file.closed:
+                self.log_file.close()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
